@@ -435,7 +435,9 @@ svg.lucide{display:block;flex:none}
 .consent input:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
 .consent.is-err input{box-shadow:inset 0 0 0 2px #E39A8F}
 .consent span{font-size:calc(12*var(--f));line-height:1.5;color:var(--body-dark)}
+.form__err{display:none;font-size:calc(13*var(--f));line-height:1.4;color:#F2B8AE}
 .form .btn{width:100%}
+.form .btn:disabled{opacity:.6;cursor:default}
 .form__call{font-size:calc(14*var(--f));font-weight:500;color:#fff;text-align:center;line-height:1.22}
 .form__call a{transition:color .15s ease}
 .form__ok{display:none;flex:1;flex-direction:column;justify-content:center;gap:calc(16*var(--u))}
@@ -1150,7 +1152,8 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         <div class="field"><label for="fPhone">Phone number</label><input id="fPhone" name="phone" type="tel" autocomplete="tel" placeholder="(617) 000-0000" required></div>
       </div>
       <div class="field field--msg"><label for="fMsg">Message</label><textarea id="fMsg" name="message" placeholder="What problems are you facing? For example loud snoring, waking up tired or trouble with CPAP."></textarea></div>
-      <label class="consent"><input type="checkbox" name="consent" required><span>I agree to be contacted by Smile Brookline by phone, text or email about my exam. Your details stay private.</span></label>
+      <label class="consent"><input id="fConsent" type="checkbox" name="checkbox" required><span>I agree to be contacted by Smile Brookline by phone, text or email about my exam. Your details stay private.</span></label>
+      <p class="form__err" id="form-error" role="alert" aria-live="polite"></p>
       <button class="btn btn--white" type="submit">Book my $195 exam</button>
       <p class="form__call">Prefer to talk? <a href="tel:+18577074435">Call (857) 707-4435</a></p>
     </div>
@@ -1385,16 +1388,52 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
   /* form */
   var form=document.getElementById("book");
-  form.addEventListener("submit",function(e){
-    e.preventDefault();var bad=[];
+  var errEl=document.getElementById("form-error"),submitBtn=form.querySelector('button[type="submit"]');
+  function showError(msg){errEl.textContent=msg;errEl.style.display=msg?"block":"none"}
+  form.addEventListener("submit",async function(e){
+    e.preventDefault();showError("");var bad=[];
+    var phoneDigits=form.querySelector("#fPhone").value.replace(/\D/g,"");
+    if(phoneDigits.length===11&&phoneDigits.charAt(0)==="1")phoneDigits=phoneDigits.slice(1);
     form.querySelectorAll("[required]").forEach(function(inp){
-      var ok=inp.type==="checkbox"?inp.checked:(inp.type==="email"?/^\S+@\S+\.\S+$/.test(inp.value):inp.value.trim().length>1);
+      var ok=inp.type==="checkbox"?inp.checked:inp.type==="email"?/^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(inp.value.trim()):inp.type==="tel"?phoneDigits.length===10:inp.value.trim().length>1;
       var wrap=inp.closest(".field")||inp.closest(".consent");wrap.classList.toggle("is-err",!ok);if(!ok)bad.push(wrap);
     });
     if(bad.length){
       if(hasG&&!REDUCED)gsap.fromTo(bad,{x:-5},{x:0,duration:.45,ease:"elastic.out(1,0.3)"});
       var first=bad[0].querySelector("input,textarea");first&&first.focus();return;
     }
+    submitBtn.disabled=true;
+
+    var fd=new FormData();
+    fd.append("first_name",form.querySelector("#fFirst").value.trim());
+    fd.append("last_name",form.querySelector("#fLast").value.trim());
+    fd.append("phone","+1"+phoneDigits);
+    fd.append("email",form.querySelector("#fEmail").value.trim());
+    fd.append("checkbox",form.querySelector("#fConsent").checked?"on":"");
+    fd.append("organization","9e6c713a-833f-462e-bc24-cb0534276019");
+    fd.append("form","609");
+    fd.append("message",form.querySelector("#fMsg").value.trim());
+    fd.append("form_location",window.location.href);
+
+    // Detect ad tracking params from URL
+    var urlParams=new URLSearchParams(window.location.search);
+    var trackingMap={gclid:"google",wbraid:"google",gbraid:"google",fbclid:"meta",ttclid:"tiktok"};
+    var trackingParam="",adSource="other";
+    for(var param in trackingMap){var val=urlParams.get(param);if(val){trackingParam=val;adSource=trackingMap[param];break}}
+    fd.append("tracking_param",trackingParam);
+    fd.append("ad_source",adSource);
+
+    try{
+      var res=await fetch("https://api.aevadigital.com/api/v1/contacts/add_contact_from_form/",{method:"POST",body:fd});
+      if(!res.ok){var txt=await res.text().catch(function(){return res.statusText});throw new Error(txt||"Server error")}
+      window.dataLayer=window.dataLayer||[];
+      window.dataLayer.push({event:"form-success"});
+    }catch(err){
+      console.error(err);
+      showError("Submission failed. Please try again or call (857) 707-4435.");
+      submitBtn.disabled=false;return;
+    }
+
     var h=form.offsetHeight;form.style.minHeight=h+"px";
     form.classList.add("is-sent");
     if(hasG&&!REDUCED)gsap.from(form.querySelectorAll(".form__ok > *"),{autoAlpha:0,y:12,duration:.5,stagger:.08,ease:"power2.out"});
